@@ -1,0 +1,9 @@
+﻿discord
+discord.py
+py-cord
+Flask
+python-dotenv
+legacy-cgi; python_version >= '3.13'
+audioop-lts; python_version>='3.13'
+
+

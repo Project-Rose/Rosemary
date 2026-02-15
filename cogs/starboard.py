@@ -141,7 +141,7 @@ class Starboard(commands.Cog):
                                     title=orig.title,
                                     description=orig.description,
                                     url=orig.url,
-                                    color=discord.Color.greyple()
+                                    color=color
                                 )
                                 if getattr(orig, 'author', None):
                                     try:

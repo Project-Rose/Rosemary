@@ -52,6 +52,7 @@ class Status(commands.Cog):
 
     @status_monitor.command(name="add", description="Add a status monitor")
     @discord.default_permissions(administrator=True)
+    @commands.guild_only()
     async def add_status_monitor(self, ctx, name: discord.Option(str), url: discord.Option(str)):
         parsed = urlparse(url)
         if not parsed.netloc or not parsed.scheme:
@@ -65,6 +66,7 @@ class Status(commands.Cog):
     
     @status_monitor.command(name="edit", description="Edit a status monitor")
     @discord.default_permissions(administrator=True)
+    @commands.guild_only()
     async def edit_status_monitor(self, ctx, monitor_name: discord.Option(str), url: discord.Option(str)):
         monitor = await self._get_monitor(monitor_name)
         if not monitor:
@@ -79,6 +81,7 @@ class Status(commands.Cog):
     
     @status_monitor.command(name="delete", description="Delete a status monitor")
     @discord.default_permissions(administrator=True)
+    @commands.guild_only()
     async def remove_status_monitor(self, ctx, monitor_name: discord.Option(str)):
         monitor = await self._get_monitor(monitor_name)
         if not monitor:
@@ -89,6 +92,7 @@ class Status(commands.Cog):
     
     @status_monitor.command(name="list", description="List all status monitors")
     @discord.default_permissions(administrator=True)
+    @commands.guild_only()
     async def list_status_monitor(self, ctx):
         monitors = await self._get_all_monitors()
         embed = discord.Embed(title="List of monitors")

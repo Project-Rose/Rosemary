@@ -26,6 +26,7 @@ cogs = bot.create_group("cogs", "Manage cogs")
 
 @cogs.command(description="Load a cog")
 @discord.default_permissions(administrator=True)
+@commands.guild_only()
 async def load(ctx, cog_name: discord.Option(str)):
     try:
         bot.load_extension(f"cogs.{cog_name}")
@@ -35,6 +36,7 @@ async def load(ctx, cog_name: discord.Option(str)):
 
 @cogs.command(description="Unload a cog")
 @discord.default_permissions(administrator=True)
+@commands.guild_only()
 async def unload(ctx, cog_name: discord.Option(str)):
     try:
         bot.unload_extension(f"cogs.{cog_name}")
@@ -44,6 +46,7 @@ async def unload(ctx, cog_name: discord.Option(str)):
 
 @cogs.command(description="Reload a cog")
 @discord.default_permissions(administrator=True)
+@commands.guild_only()
 async def reload(ctx, cog_name: discord.Option(str)):
     try:
         bot.unload_extension(f"cogs.{cog_name}")
@@ -54,6 +57,7 @@ async def reload(ctx, cog_name: discord.Option(str)):
 
 @bot.slash_command(description="Shutdown the bot")
 @discord.default_permissions(administrator=True)
+@commands.guild_only()
 async def shutdown(ctx):
     await ctx.respond("Shutting down!")
     await bot.close()

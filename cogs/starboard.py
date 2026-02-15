@@ -1,28 +1,65 @@
 import discord
 from discord.ext import commands
-import json
 import os
+from asgiref.sync import sync_to_async
+from pathlib import Path
+from db.models import StarboardMessage
 
-STAR_FILE = "starboard_data.json"
-STAR_THRESHOLD = 5  # Change how many ⭐ are required
+STAR_THRESHOLD = int(os.getenv("STAR_THRESHOLD"))  # Change how many ⭐ are required
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 class Starboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.star_data = self.load_data()
 
     # ------------------------
-    # JSON Persistence
+    # Database Helper Methods
     # ------------------------
-    def load_data(self):
-        if not os.path.exists(STAR_FILE):
-            return {}
-        with open(STAR_FILE, "r") as f:
-            return json.load(f)
+    @sync_to_async
+    def _get_starboard_entry(self, message_id):
+        """Get a starboard entry from the database"""
+        try:
+            return StarboardMessage.objects.get(message_id=message_id)
+        except StarboardMessage.DoesNotExist:
+            return None
 
-    def save_data(self):
-        with open(STAR_FILE, "w") as f:
-            json.dump(self.star_data, f, indent=4)
+    @sync_to_async
+    def _get_starboard_entry_by_starboard_id(self, starboard_message_id):
+        """Get a starboard entry by its starboard message ID"""
+        try:
+            return StarboardMessage.objects.filter(starboard_message_id=starboard_message_id).first()
+        except:
+            return None
+
+    @sync_to_async
+    def _create_starboard_entry(self, message_id, starboard_message_id, channel_id, stars):
+        """Create a new starboard entry"""
+        return StarboardMessage.objects.create(
+            message_id=message_id,
+            starboard_message_id=starboard_message_id,
+            channel_id=channel_id,
+            stars=stars
+        )
+
+    @sync_to_async
+    def _update_starboard_entry(self, message_id, stars):
+        """Update a starboard entry's star count"""
+        try:
+            entry = StarboardMessage.objects.get(message_id=message_id)
+            entry.stars = stars
+            entry.save()
+            return entry
+        except StarboardMessage.DoesNotExist:
+            return None
+
+    @sync_to_async
+    def _delete_starboard_entry(self, message_id):
+        """Delete a starboard entry"""
+        try:
+            StarboardMessage.objects.get(message_id=message_id).delete()
+            return True
+        except StarboardMessage.DoesNotExist:
+            return False
 
     # ------------------------
     # Helper Functions
@@ -221,17 +258,17 @@ class Starboard(commands.Cog):
         
         return embeds
 
-    async def update_starboard_message(self, guild_id, message_id, star_count):
+    async def update_starboard_message(self, message_id, star_count):
         """Update an existing starboard message with new star count"""
-        guild_id_str = str(guild_id)
         message_id_str = str(message_id)
 
-        if guild_id_str not in self.star_data or message_id_str not in self.star_data[guild_id_str]:
+        starboard_entry = await self._get_starboard_entry(message_id_str)
+        if not starboard_entry:
             return
 
-        starboard_msg_id = self.star_data[guild_id_str][message_id_str]["starboard_message_id"]
+        starboard_msg_id = starboard_entry.starboard_message_id
         
-        guild = self.bot.get_guild(guild_id)
+        guild = self.bot.get_guild(GUILD_ID)
         if not guild:
             return
 
@@ -240,8 +277,8 @@ class Starboard(commands.Cog):
             return
 
         try:
-            starboard_msg = await starboard_channel.fetch_message(starboard_msg_id)
-            original_channel = guild.get_channel(int(self.star_data[guild_id_str][message_id_str].get("channel_id", 0)))
+            starboard_msg = await starboard_channel.fetch_message(int(starboard_msg_id))
+            original_channel = guild.get_channel(int(starboard_entry.channel_id))
             
             if original_channel:
                 original_msg = await original_channel.fetch_message(int(message_id_str))
@@ -251,29 +288,25 @@ class Starboard(commands.Cog):
                 
                 await starboard_msg.edit(content=content, embeds=embeds)
                 
-                self.star_data[guild_id_str][message_id_str]["stars"] = star_count
-                self.save_data()
+                await self._update_starboard_entry(message_id_str, star_count)
         except discord.NotFound:
-            del self.star_data[guild_id_str][message_id_str]
-            self.save_data()
+            await self._delete_starboard_entry(message_id_str)
         except Exception as e:
             print(f"Error updating starboard message: {e}")
 
-    async def get_unique_starred_users(self, guild, guild_id, message_id):
+    async def get_unique_starred_users(self, guild, message_id):
         """Get unique users who starred from both original and starboard messages"""
         unique_users = set()
         
-        guild_id_str = str(guild_id)
         message_id_str = str(message_id)
         
-        if guild_id_str not in self.star_data or message_id_str not in self.star_data[guild_id_str]:
+        starboard_entry = await self._get_starboard_entry(message_id_str)
+        if not starboard_entry:
             return unique_users
-        
-        data = self.star_data[guild_id_str][message_id_str]
         
         # Get stars from original message
         try:
-            original_channel = guild.get_channel(data.get("channel_id"))
+            original_channel = guild.get_channel(int(starboard_entry.channel_id))
             if original_channel:
                 original_msg = await original_channel.fetch_message(int(message_id_str))
                 for reaction in original_msg.reactions:
@@ -288,9 +321,9 @@ class Starboard(commands.Cog):
         try:
             starboard_channel = discord.utils.get(guild.text_channels, name="starboard")
             if starboard_channel:
-                starboard_msg_id = data.get("starboard_message_id")
+                starboard_msg_id = starboard_entry.starboard_message_id
                 if starboard_msg_id:
-                    starboard_msg = await starboard_channel.fetch_message(starboard_msg_id)
+                    starboard_msg = await starboard_channel.fetch_message(int(starboard_msg_id))
                     for reaction in starboard_msg.reactions:
                         if str(reaction.emoji) == "⭐":
                             async for user in reaction.users():
@@ -319,7 +352,7 @@ class Starboard(commands.Cog):
             return
 
         guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
+        if not guild or payload.guild_id != GUILD_ID:
             return
 
         channel = guild.get_channel(payload.channel_id)
@@ -330,30 +363,26 @@ class Starboard(commands.Cog):
             message = await channel.fetch_message(payload.message_id)
         except discord.NotFound:
             return
-
-        guild_id = str(guild.id)
         
         # Check if reaction is on starboard message
         if channel.name == "starboard":
-            original_message_id = None
-            for msg_id, data in self.star_data.get(guild_id, {}).items():
-                if data.get("starboard_message_id") == payload.message_id:
-                    original_message_id = msg_id
-                    break
+            starboard_entry = await self._get_starboard_entry_by_starboard_id(str(payload.message_id))
             
-            if original_message_id:
-                unique_users = await self.get_unique_starred_users(guild, guild_id, original_message_id)
+            if starboard_entry:
+                original_message_id = starboard_entry.message_id
+                unique_users = await self.get_unique_starred_users(guild, int(original_message_id))
                 star_count = len(unique_users)
-                await self.update_starboard_message(payload.guild_id, int(original_message_id), star_count)
+                await self.update_starboard_message(int(original_message_id), star_count)
             return
 
         message_id = str(message.id)
 
         # Check if already on starboard
-        if guild_id in self.star_data and message_id in self.star_data[guild_id]:
-            unique_users = await self.get_unique_starred_users(guild, guild_id, message_id)
+        starboard_entry = await self._get_starboard_entry(message_id)
+        if starboard_entry:
+            unique_users = await self.get_unique_starred_users(guild, int(message_id))
             star_count = len(unique_users)
-            await self.update_starboard_message(payload.guild_id, payload.message_id, star_count)
+            await self.update_starboard_message(payload.message_id, star_count)
             return
 
         # New starboard entry
@@ -371,21 +400,17 @@ class Starboard(commands.Cog):
         starboard_channel = discord.utils.get(guild.text_channels, name="starboard")
         if not starboard_channel:
             return
-
         content = f"⭐ **{star_count}** - {message.jump_url}"
         embeds = await self.create_starboard_embeds(message)
         
         sent = await starboard_channel.send(content=content, embeds=embeds)
 
-        if guild_id not in self.star_data:
-            self.star_data[guild_id] = {}
-        
-        self.star_data[guild_id][message_id] = {
-            "starboard_message_id": sent.id,
-            "channel_id": channel.id,
-            "stars": star_count
-        }
-        self.save_data()
+        await self._create_starboard_entry(
+            message_id=message_id,
+            starboard_message_id=str(sent.id),
+            channel_id=str(channel.id),
+            stars=star_count
+        )
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
@@ -393,41 +418,35 @@ class Starboard(commands.Cog):
             return
 
         guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
+        if not guild or payload.guild_id != GUILD_ID:
             return
 
         channel = guild.get_channel(payload.channel_id)
         if not channel:
             return
-
-        guild_id = str(guild.id)
         
         # Check if removal is on starboard message
         if channel.name == "starboard":
-            original_message_id = None
-            for msg_id, data in self.star_data.get(guild_id, {}).items():
-                if data.get("starboard_message_id") == payload.message_id:
-                    original_message_id = msg_id
-                    break
+            starboard_entry = await self._get_starboard_entry_by_starboard_id(str(payload.message_id))
             
-            if original_message_id:
-                unique_users = await self.get_unique_starred_users(guild, guild_id, original_message_id)
+            if starboard_entry:
+                original_message_id = starboard_entry.message_id
+                unique_users = await self.get_unique_starred_users(guild, int(original_message_id))
                 star_count = len(unique_users)
                 
                 if star_count >= STAR_THRESHOLD:
-                    await self.update_starboard_message(payload.guild_id, int(original_message_id), star_count)
+                    await self.update_starboard_message(int(original_message_id), star_count)
                 else:
                     try:
                         starboard_channel = discord.utils.get(guild.text_channels, name="starboard")
                         if starboard_channel:
-                            starboard_msg_id = self.star_data[guild_id][original_message_id]["starboard_message_id"]
-                            starboard_msg = await starboard_channel.fetch_message(starboard_msg_id)
+                            starboard_msg_id = starboard_entry.starboard_message_id
+                            starboard_msg = await starboard_channel.fetch_message(int(starboard_msg_id))
                             await starboard_msg.delete()
                     except:
                         pass
                     
-                    del self.star_data[guild_id][original_message_id]
-                    self.save_data()
+                    await self._delete_starboard_entry(original_message_id)
             return
 
         try:
@@ -437,24 +456,26 @@ class Starboard(commands.Cog):
 
         message_id = str(message.id)
 
-        if guild_id in self.star_data and message_id in self.star_data[guild_id]:
-            unique_users = await self.get_unique_starred_users(guild, guild_id, message_id)
-            star_count = len(unique_users)
-            
-            if star_count >= STAR_THRESHOLD:
-                await self.update_starboard_message(payload.guild_id, payload.message_id, star_count)
-            else:
-                try:
-                    starboard_channel = discord.utils.get(guild.text_channels, name="starboard")
-                    if starboard_channel:
-                        starboard_msg_id = self.star_data[guild_id][message_id]["starboard_message_id"]
-                        starboard_msg = await starboard_channel.fetch_message(starboard_msg_id)
-                        await starboard_msg.delete()
-                except:
-                    pass
-                
-                del self.star_data[guild_id][message_id]
-                self.save_data()
+        starboard_entry = await self._get_starboard_entry(message_id)
+        if not starboard_entry:
+            return
 
-async def setup(bot):
-    await bot.add_cog(Starboard(bot))
+        unique_users = await self.get_unique_starred_users(guild, int(message_id))
+        star_count = len(unique_users)
+        
+        if star_count >= STAR_THRESHOLD:
+            await self.update_starboard_message(payload.message_id, star_count)
+        else:
+            try:
+                starboard_channel = discord.utils.get(guild.text_channels, name="starboard")
+                if starboard_channel:
+                    starboard_msg_id = starboard_entry.starboard_message_id
+                    starboard_msg = await starboard_channel.fetch_message(int(starboard_msg_id))
+                    await starboard_msg.delete()
+            except:
+                pass
+            
+            await self._delete_starboard_entry(message_id)
+
+def setup(bot):
+    bot.add_cog(Starboard(bot))

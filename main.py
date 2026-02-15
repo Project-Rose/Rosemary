@@ -1,22 +1,19 @@
 import os
 import discord
 from discord.ext import commands
-from discord import app_commands
 import asyncio
 from dotenv import load_dotenv
-from keep_alive import keep_alive
+import manage
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-keep_alive()
-
-game_activity = discord.Game(name="Liquid Glass is peak!")
+game_activity = discord.Game(name=os.getenv("STATUS"))
 intents = discord.Intents.default()
 intents.members = True # Example for member access
 intents.message_content = True
+intents.presences = True
 bot = commands.Bot(
-    command_prefix="!",
     activity=game_activity, 
     status=discord.Status.online,
     intents=intents
@@ -25,16 +22,45 @@ bot = commands.Bot(
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
-    await bot.tree.sync()
 
-extensions = [
-    "cogs.starboard",
-]
 
-async def main():
-    async with bot:
-        for extension in extensions:
-            await bot.load_extension(extension)
-        await bot.start(TOKEN)
+cogs = bot.create_group("cogs", "Manage cogs")
+@cogs.command(description="Load a cog")
+@discord.default_permissions(administrator=True)
+async def load(ctx, cog_name: discord.Option(str)):
+    try:
+        bot.load_extension(f"cogs.{cog_name}")
+        await ctx.respond(f"Successfully loaded cog `{cog_name}`.")
+    except:
+        await ctx.respond(f"Unable to load cog `{cog_name}`.")
+@cogs.command(description="Unload a cog")
+@discord.default_permissions(administrator=True)
+async def unload(ctx, cog_name: discord.Option(str)):
+    try:
+        bot.unload_extension(f"cogs.{cog_name}")
+        await ctx.respond(f"Successfully unloaded cog `{cog_name}`.")
+    except:
+        await ctx.respond(f"Unable to unload cog `{cog_name}`.")
+@cogs.command(description="Reload a cog")
+@discord.default_permissions(administrator=True)
+async def reload(ctx, cog_name: discord.Option(str)):
+    try:
+        bot.unload_extension(f"cogs.{cog_name}")
+        bot.load_extension(f"cogs.{cog_name}")
+        await ctx.respond(f"Successfully reloaded cog `{cog_name}`.")
+    except:
+        await ctx.respond(f"Unable to reload cog `{cog_name}`.")
 
-asyncio.run(main())
+@bot.slash_command(description="Shutdown the bot")
+@discord.default_permissions(administrator=True)
+async def shutdown(ctx):
+    await ctx.respond("Shutting down!")
+    await bot.close()
+
+for filename in os.listdir('./cogs'):
+    if filename.endswith('.py'):
+        cog = filename[:-3]
+        print(f'Loading cog: {cog}')
+        bot.load_extension(f'cogs.{cog}')
+
+bot.run(TOKEN)

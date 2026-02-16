@@ -124,83 +124,83 @@ class Mii(commands.Cog):
             image_url += f"&pantsColor={pants_color}"
         data_url = f"https://mii-unsecure.ariankordi.net/mii_data/{nid}?api_id={api_id}"
 
-        #try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as img_resp, session.get(data_url) as data_resp:
-                if img_resp.status != 200:
-                    return await ctx.respond("The Mii could not be found!", ephemeral=True)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as img_resp, session.get(data_url) as data_resp:
+                    if img_resp.status != 200:
+                        return await ctx.respond("The Mii could not be found!", ephemeral=True)
+                
+                    image_bytes = await img_resp.read()
+                    mii_json = await data_resp.json()
+            raw_mii_data = base64.b64decode(mii_json['data'])
+
+            if clothes_color:
+                # one by one because this is complicated
+                # color table
+                color_table = {"red": 0x00, "orange": 0x01, "yellow": 0x02, "yellowgreen": 0x03, "green": 0x04, "blue": 0x05, "skyblue": 0x06, "pink": 0x07, "purple": 0x08, "brown": 0x09, "white": 0x0A, "black": 0x0B}
+                # we store the mii data in a bytesio object
+                
+                mii_data = io.BytesIO(raw_mii_data)
+                # we go to 0x18, then we read 2 bytes, and we clear out the bits that contain the color (https://www.3dbrew.org/wiki/Mii#Mii_format)
+                mii_data.seek(0x18)
+                data = int.from_bytes(mii_data.read(2), byteorder="little") & 0xC3FF
+                # we choose the new color, shift it by 10 and then we merge it with the rest with an OR operation
+                new_color = color_table[clothes_color] << 10
+                data = data | new_color
+                # then we write the new data
+                mii_data.seek(0x18)
+                mii_data.write(data.to_bytes(2, byteorder="little"))
+                # new checksum
+                crc = crc16(mii_data.getvalue()[0:94])
+                mii_data.seek(0x5E)
+                mii_data.write(crc.to_bytes(2))
+                
+                mii_json['data'] = str(base64.b64encode(mii_data.getvalue()), encoding="utf-8")
+                encrypted_data = encrypt_mii_data(bytearray(mii_data.getvalue()))
+
+                mii_data.close()
+            else:
+                encrypted_data = encrypt_mii_data(bytearray(raw_mii_data))
             
-                image_bytes = await img_resp.read()
-                mii_json = await data_resp.json()
-        raw_mii_data = base64.b64decode(mii_json['data'])
-
-        if clothes_color:
-            # one by one because this is complicated
-            # color table
-            color_table = {"red": 0x00, "orange": 0x01, "yellow": 0x02, "yellowgreen": 0x03, "green": 0x04, "blue": 0x05, "skyblue": 0x06, "pink": 0x07, "purple": 0x08, "brown": 0x09, "white": 0x0A, "black": 0x0B}
-            # we store the mii data in a bytesio object
+            # Generate QR Code
+            qr = qrcode.QRCode(border=1)
+            qr.add_data(encrypted_data)
+            qr_img = qr.make_image(fill_color="black", back_color="white")
             
-            mii_data = io.BytesIO(raw_mii_data)
-            # we go to 0x18, then we read 2 bytes, and we clear out the bits that contain the color (https://www.3dbrew.org/wiki/Mii#Mii_format)
-            mii_data.seek(0x18)
-            data = int.from_bytes(mii_data.read(2), byteorder="little") & 0xC3FF
-            # we choose the new color, shift it by 10 and then we merge it with the rest with an OR operation
-            new_color = color_table[clothes_color] << 10
-            data = data | new_color
-            # then we write the new data
-            mii_data.seek(0x18)
-            mii_data.write(data.to_bytes(2, byteorder="little"))
-            # new checksum
-            crc = crc16(mii_data.getvalue()[0:94])
-            mii_data.seek(0x5E)
-            mii_data.write(crc.to_bytes(2))
+            qr_buffer = io.BytesIO()
+            qr_img.save(qr_buffer, format="PNG")
+            qr_buffer.seek(0)
+
+            # Build Embed
+            network_info = {
+                "id_type": "PNID" if api_id == 1 else "NNID",
+                "color": 0x1b1f3b if api_id == 1 else 0xFF7D00,
+                "text": f"Environment: {'Pretendo' if api_id == 1 else 'Nintendo'} Network",
+                "icon": "https://pretendo.network/assets/images/icons/favicon-32x32.png" if api_id == 1 else "https://media.discordapp.net/attachments/1290013025633304696/1295610730904817684/image.png"
+            }
+
+            embed = discord.Embed(
+                title=f"{mii_json.get('name', 'Unknown')}'s Mii",
+                description="Here are the details for your Mii.",
+                color=network_info["color"]
+            )
+            embed.set_thumbnail(url="attachment://mii.png")
+            embed.set_image(url="attachment://mii_qr.png")
+            embed.set_footer(text=network_info["text"], icon_url=network_info["icon"])
             
-            mii_json['data'] = str(base64.b64encode(mii_data.getvalue()), encoding="utf-8")
-            encrypted_data = encrypt_mii_data(bytearray(mii_data.getvalue()))
+            embed.add_field(name="Name", value=mii_json.get('name', 'N/A'), inline=True)
+            embed.add_field(name=network_info["id_type"], value=str(mii_json.get('user_id', nid)), inline=True)
+            embed.add_field(name="Mii data (base64)", value=mii_json["data"], inline=False)
+            embed.add_field(name="QR Code:", value="\u200B", inline=False)
 
-            mii_data.close()
-        else:
-            encrypted_data = encrypt_mii_data(bytearray(raw_mii_data))
-        
-        # Generate QR Code
-        qr = qrcode.QRCode(border=1)
-        qr.add_data(encrypted_data)
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-           
-        qr_buffer = io.BytesIO()
-        qr_img.save(qr_buffer, format="PNG")
-        qr_buffer.seek(0)
-
-        # Build Embed
-        network_info = {
-            "id_type": "PNID" if api_id == 1 else "NNID",
-            "color": 0x1b1f3b if api_id == 1 else 0xFF7D00,
-            "text": f"Environment: {'Pretendo' if api_id == 1 else 'Nintendo'} Network",
-            "icon": "https://pretendo.network/assets/images/icons/favicon-32x32.png" if api_id == 1 else "https://media.discordapp.net/attachments/1290013025633304696/1295610730904817684/image.png"
-        }
-
-        embed = discord.Embed(
-            title=f"{mii_json.get('name', 'Unknown')}'s Mii",
-            description="Here are the details for your Mii.",
-            color=network_info["color"]
-        )
-        embed.set_thumbnail(url="attachment://mii.png")
-        embed.set_image(url="attachment://mii_qr.png")
-        embed.set_footer(text=network_info["text"], icon_url=network_info["icon"])
-        
-        embed.add_field(name="Name", value=mii_json.get('name', 'N/A'), inline=True)
-        embed.add_field(name=network_info["id_type"], value=str(mii_json.get('user_id', nid)), inline=True)
-        embed.add_field(name="Mii data (base64)", value=mii_json["data"], inline=False)
-        embed.add_field(name="QR Code:", value="\u200B", inline=False)
-
-        mii_file = discord.File(io.BytesIO(image_bytes), filename="mii.png")
-        qr_file = discord.File(qr_buffer, filename="mii_qr.png")
+            mii_file = discord.File(io.BytesIO(image_bytes), filename="mii.png")
+            qr_file = discord.File(qr_buffer, filename="mii_qr.png")
 
 
-        await ctx.respond(embed=embed, files=[mii_file, qr_file])
-        #except Exception as e:
-        #    print(f"Error fetching Mii: {e}")
-        #    await ctx.respond("Couldn't fetch your Mii. Please try again.", ephemeral=True)
+            await ctx.respond(embed=embed, files=[mii_file, qr_file])
+        except Exception as e:
+            print(f"Error fetching Mii: {e}")
+            await ctx.respond("Couldn't fetch your Mii. Please try again.", ephemeral=True)
 
 def setup(bot):
     bot.add_cog(Mii(bot))

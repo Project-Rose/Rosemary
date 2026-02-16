@@ -4,7 +4,7 @@ from db.models import StatusMonitor
 from datetime import datetime
 from django.utils import timezone
 from urllib.parse import urlparse
-import discord, asyncio, os, aiohttp, humanize
+import discord, asyncio, os, aiohttp, humanize, http, time
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
 STATUS_MONITOR_REFRESH = int(os.getenv("STATUS_MONITOR_REFRESH"))
@@ -48,8 +48,39 @@ class Status(commands.Cog):
         monitor.delete()
 
     @sync_to_async
-    def _get_all_monitors(name: str):
+    def _get_all_monitors(self):
         return list(StatusMonitor.objects.all())
+    
+    async def _update_monitors(self, status_channel):
+        monitors = await self._get_all_monitors()
+        for monitor in monitors:
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(monitor.url) as response:
+                        if str(response.status).startswith("5") or str(response.status).startswith("4"):
+                            if not monitor.is_down:
+                                embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with status code: {response.status} ({http.HTTPStatus(response.status).phrase})")
+                                embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())})")
+                                embed.set_thumbnail(url="attachment://offline.png")
+                                offline_file = discord.File("images/offline.png", filename="offline.png")
+                                await status_channel.send(embed=embed, files=[offline_file])
+                                await self._monitor_go_down(monitor)
+                        else:
+                            if monitor.is_down:
+                                embed = discord.Embed(color=discord.Color.green(), title=f"{monitor.name} is up!", description=f"Downtime duration: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)}")
+                                embed.set_thumbnail(url="attachment://online.png")
+                                online_file = discord.File("images/online.png", filename="online.png")
+                                await self._monitor_up(monitor)
+                                await status_channel.send(embed=embed, files=[online_file])
+                except Exception as e:
+                    if not monitor.is_down:
+                        embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with exception: {e}")
+                        embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())})")
+                        embed.set_thumbnail(url="attachment://offline.png")
+                        offline_file = discord.File("images/offline.png", filename="offline.png")
+                        await status_channel.send(embed=embed, files=[offline_file])
+                        await self._monitor_go_down(monitor)
+
 
     status_monitor = discord.SlashCommandGroup("status_monitor", "Status Monitor commands", guild_ids=[GUILD_ID])
 
@@ -103,6 +134,17 @@ class Status(commands.Cog):
             embed.add_field(name=monitor.name, value=monitor.url, inline=False)
         await ctx.respond(embed=embed)
     
+    @status_monitor.command(name="update", description="Manually update all status monitors")
+    @discord.default_permissions(administrator=True)
+    async def update_status_monitor(self, ctx):
+        guild = self.bot.get_guild(GUILD_ID)
+        status_channel = discord.utils.get(guild.text_channels, name="rose-server-status")
+        if not status_channel:
+            await ctx.respond("No status channel found.")
+        await ctx.defer()
+        await self._update_monitors(status_channel)
+        await ctx.respond("Manually updated all status monitors.")
+    
     @commands.Cog.listener()
     async def on_ready(self):
         guild = self.bot.get_guild(GUILD_ID)
@@ -111,26 +153,7 @@ class Status(commands.Cog):
             return
         while True:
             await asyncio.sleep(STATUS_MONITOR_REFRESH)
-            monitors = await self._get_all_monitors()
-            for monitor in monitors:
-                async with aiohttp.ClientSession() as session:
-                    try:
-                        async with session.get(monitor.url) as response:
-                            if str(response.status).startswith("5") or str(response.status).startswith("4"):
-                                if not monitor.is_down:
-                                    embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with status code: {response.status}")
-                                    await status_channel.send(embed=embed)
-                                    await self._monitor_go_down(monitor)
-                            else:
-                                if monitor.is_down:
-                                    embed = discord.Embed(color=discord.Color.green(), title=f"{monitor.name} is up!", description=f"Downtime duration: {humanize.time.naturaldelta(timezone.now() - monitor.downtime_start)}")
-                                    await status_channel.send(embed=embed)
-                                    await self._monitor_up(monitor)
-                    except Exception as e:
-                        if not monitor.is_down:
-                            embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with exception: {e}")
-                            await status_channel.send(embed=embed)
-                            await self._monitor_go_down(monitor)
-
+            await self._update_monitors(status_channel)
+    
 def setup(bot):
     bot.add_cog(Status(bot))

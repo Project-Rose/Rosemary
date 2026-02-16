@@ -186,7 +186,7 @@ class Starboard(commands.Cog):
 
                 fallback = discord.Embed(
                     description=desc,
-                    color=discord.Color.greyple(),
+                    color=color,
                 )
                 # Attempt to set timestamp if provided
                 if forward_time:

@@ -2,6 +2,7 @@ from discord.ext import commands
 from random import choice, randint
 import discord, aiohttp, base64, io, qrcode
 from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 
 # helper functions
 def crc16(data: bytes):
@@ -13,18 +14,29 @@ def crc16(data: bytes):
         lsb = (x ^ (x << 5)) & 0xFF
     return (msb << 8) + lsb
 
-def encrypt_mii_data(data_bytes: bytearray):
-    data_bytes[3] = 0x30
-    nonce = data_bytes[12:20]
-    content = data_bytes[0:12] + data_bytes[20:]
-    checksum_content = data_bytes[0:12] + nonce + data_bytes[20:-2]
-    new_crc = crc16(checksum_content)
-    content = content[:-2] + bytes([(new_crc >> 8) & 0xFF, new_crc & 0xFF])
+def to_byte_array(num: int) -> bytes:
+    return bytes([(num >> 8) & 0xFF, num & 0xFF])
+
+def encrypt_aes_ccm(data: bytes) -> bytes:
+    data = bytearray(data)
+    data[0x03] = 0x30
+    nonce = bytes(data[12:20])
+    content = bytes(data[0:12] + data[20:])
+    checksum_content = bytes(data[0:12] + data[12:20] + data[20:-2])
+    new_checksum = crc16(checksum_content)
+    content = content[:-2] + to_byte_array(new_checksum)
     key = bytes.fromhex("59FC817E6446EA6190347B20E9BDCE52")
-    cipher = AES.new(key, AES.MODE_CCM, nonce=nonce + b'\x00\x00\x00\x00', mac_len=16)
-    padded_content = content + b'\x00' * 8
-    ciphertext, tag = cipher.encrypt_and_digest(padded_content)
-    return nonce + ciphertext[:len(ciphertext)-8] + tag
+    padded_content = content + bytes(8)
+    nonce_for_ccm = nonce + bytes(4)
+    cipher = AES.new(key, AES.MODE_CCM, nonce=nonce_for_ccm, mac_len=16)
+    encrypted = cipher.encrypt(padded_content)
+    tag = cipher.digest()
+    encrypted_bytes = encrypted + tag
+    correct_encrypted_content_length = len(encrypted_bytes) - 8 - 16
+    encrypted_content_corrected = encrypted_bytes[:correct_encrypted_content_length]
+    tag = encrypted_bytes[-16:]
+    result = nonce + encrypted_content_corrected + tag
+    return result
 
 class Mii(commands.Cog):
     def __init__(self, bot):
@@ -156,14 +168,14 @@ class Mii(commands.Cog):
                 mii_data.write(crc.to_bytes(2))
                 
                 mii_json['data'] = str(base64.b64encode(mii_data.getvalue()), encoding="utf-8")
-                encrypted_data = encrypt_mii_data(bytearray(mii_data.getvalue()))
+                encrypted_data = encrypt_aes_ccm(mii_data.getvalue())
 
                 mii_data.close()
             else:
-                encrypted_data = encrypt_mii_data(bytearray(raw_mii_data))
+                encrypted_data = encrypt_aes_ccm(raw_mii_data)
             
             # Generate QR Code
-            qr = qrcode.QRCode(border=1)
+            qr = qrcode.QRCode(version=5, border=1)
             qr.add_data(encrypted_data)
             qr_img = qr.make_image(fill_color="black", back_color="white")
             
@@ -195,7 +207,6 @@ class Mii(commands.Cog):
 
             mii_file = discord.File(io.BytesIO(image_bytes), filename="mii.png")
             qr_file = discord.File(qr_buffer, filename="mii_qr.png")
-
 
             await ctx.respond(embed=embed, files=[mii_file, qr_file])
         except Exception as e:

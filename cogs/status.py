@@ -119,16 +119,19 @@ class Status(commands.Cog):
                             if str(response.status).startswith("5") or str(response.status).startswith("4"):
                                 if not monitor.is_down:
                                     embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with status code: {response.status}")
+                                    embed.set_thumbnail(url="https://raw.githubusercontent.com/Project-Rose/Rosemary/refs/heads/main/images/offline.png")
                                     await status_channel.send(embed=embed)
                                     await self._monitor_go_down(monitor)
                             else:
                                 if monitor.is_down:
                                     embed = discord.Embed(color=discord.Color.green(), title=f"{monitor.name} is up!", description=f"Downtime duration: {humanize.time.naturaldelta(timezone.now() - monitor.downtime_start)}")
+                                    embed.set_thumbnail(url="https://raw.githubusercontent.com/Project-Rose/Rosemary/refs/heads/main/images/online.png")
                                     await status_channel.send(embed=embed)
                                     await self._monitor_up(monitor)
                     except Exception as e:
                         if not monitor.is_down:
                             embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with exception: {e}")
+                            embed.set_thumbnail(url="https://raw.githubusercontent.com/Project-Rose/Rosemary/refs/heads/main/images/offline.png")
                             await status_channel.send(embed=embed)
                             await self._monitor_go_down(monitor)
 

@@ -1,48 +1,117 @@
-from discord.ext import commands
-from random import choice, randint
-import discord, aiohttp, base64, io, qrcode
+import io
+import base64
+import qrcode
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad
+import aiohttp
+
+from discord.ext import commands
+import discord
 
 # helper functions
-def crc16(data: bytes):
+def crc16_ccitt(data: bytearray):
+    """
+    Calculates the CRC-16/CCITT/XMODEM checksum for the specified input data.
+    Courtesy of Luciano Barcaro: https://stackoverflow.com/a/30357446
+    """
     msb, lsb = 0, 0
-    for byte in data:
-        x = byte ^ msb
+    for c in data:
+        x = c ^ msb
         x ^= (x >> 4)
-        msb = (lsb ^ (x >> 3) ^ (x << 4)) & 0xFF
-        lsb = (x ^ (x << 5)) & 0xFF
+        msb = (lsb ^ (x >> 3) ^ (x << 4)) & 255
+        lsb = (x ^ (x << 5)) & 255
     return (msb << 8) + lsb
 
-def to_byte_array(num: int) -> bytes:
-    return bytes([(num >> 8) & 0xFF, num & 0xFF])
+qr_code_key = bytes.fromhex("59FC817E6446EA6190347B20E9BDCE52")
 
-def encrypt_aes_ccm(data: bytes) -> bytes:
-    data = bytearray(data)
-    data[0x03] = 0x30
-    nonce = bytes(data[12:20])
-    content = bytes(data[0:12] + data[20:])
-    checksum_content = bytes(data[0:12] + data[12:20] + data[20:-2])
-    new_checksum = crc16(checksum_content)
-    content = content[:-2] + to_byte_array(new_checksum)
-    key = bytes.fromhex("59FC817E6446EA6190347B20E9BDCE52")
-    padded_content = content + bytes(8)
-    nonce_for_ccm = nonce + bytes(4)
-    cipher = AES.new(key, AES.MODE_CCM, nonce=nonce_for_ccm, mac_len=16)
-    encrypted = cipher.encrypt(padded_content)
+def encrypt_mii_data_for_qr_code(data: bytearray, key: bytes) -> bytes:
+    """
+    Encrypt 3DS/Wii U Mii StoreData (96 bytes) into QR code wrapped format (112 bytes).
+    Retrieved from: https://jsfiddle.net/arian_/ckya346z/19/
+
+    :param data: Input 96-byte StoreData (Ver3StoreData).
+    :param key: AES key (16 bytes).
+    :raises ValueError: if data length is not 96 bytes.
+    """
+
+    VER3_STORE_DATA_LENGTH = 96   # 3DS/Wii U Mii StoreData
+    WRAPPED_ID_OFFSET = 12        # Offset of CreateID in StoreData
+    WRAPPED_ID_LENGTH = 8         # Length of CreateID used for nonce
+    WRAPPED_TAG_LENGTH = 16       # AES-CCM tag length
+    WRAPPED_NONCE_LENGTH = 12     # AES-CCM nonce length
+
+    if len(data) != VER3_STORE_DATA_LENGTH:
+        raise ValueError(f"encrypt_aes_ccm: Input size is {len(data)}, expected {VER3_STORE_DATA_LENGTH}")
+
+    # The ID to include in the encrypted data as the nonce (IV).
+    id_end_offset = WRAPPED_ID_OFFSET + WRAPPED_ID_LENGTH
+    wrapped_id = bytes(data[WRAPPED_ID_OFFSET:id_end_offset])
+
+    # Content to be encrypted: data with ID cut out, padded with 8 zeros.
+    content = bytearray(VER3_STORE_DATA_LENGTH)
+    content[0:WRAPPED_ID_OFFSET] = data[0:WRAPPED_ID_OFFSET]
+    content[WRAPPED_ID_OFFSET:] = data[id_end_offset:]
+
+    # AES-CCM nonce initialized to zeroes with ID at the start.
+    nonce = bytearray(WRAPPED_NONCE_LENGTH)
+    nonce[0:WRAPPED_ID_LENGTH] = wrapped_id
+
+    # Encrypt the padded content using the ID as nonce (IV).
+    cipher = AES.new(key, AES.MODE_CCM, nonce=bytes(nonce), mac_len=TAG_LENGTH)
+    encrypted_bytes = cipher.encrypt(bytes(content))
     tag = cipher.digest()
-    encrypted_bytes = encrypted + tag
-    correct_encrypted_content_length = len(encrypted_bytes) - 8 - 16
-    encrypted_content_corrected = encrypted_bytes[:correct_encrypted_content_length]
-    tag = encrypted_bytes[-16:]
-    result = nonce + encrypted_content_corrected + tag
+
+    # Construct result: nonce + encrypted content + tag.
+    result = wrapped_id + encrypted_bytes + tag
     return result
+
+# Reference for 3DS/Wii U format Mii data: https://github.com/Genwald/MiiPort/blob/4ee38bbb8aa68a2365e9c48d59d7709f760f9b5d/include/mii_ext.h#L170-L264
+def update_mii_checksum(mii_data):
+    """
+    Update the checksum and set Mii properties to make it friendly for QR scanning.
+    """
+    # Set birthPlatform bitfield to 3 (CFLi_BIRTH_PLATFORM_CTR).
+    mii_data[3] = mii_data[3] & 0b10001111 | 0b00110000
+    # Allow the Mii to be copied, for convenience.
+    mii_data[1] |= 1 # copyable = 1
+
+    # calculate and write new crc16 checksum
+    crc = crc16_ccitt(mii_data[0:94])
+    # set uint16 number
+    mii_data[94] = (crc >> 8) & 0xFF
+    mii_data[95] = crc & 0xFF
+
+def set_favorite_color(mii_data: bytearray, favorite_color):
+    # set favoriteColor bitfield
+    mii_data[0x19] = mii_data[0x19] & 0xc3 | (favorite_color & 0xf) * 4
+
+def make_mii_qr_code(raw_mii_data: bytearray, favorite_color: int|None = None) -> io.BytesIO:
+    if favorite_color is not None: # only set clothes color if value is not None
+        set_favorite_color(raw_mii_data, favorite_color)
+
+    update_mii_checksum(raw_mii_data)
+    encrypted_data = encrypt_mii_data_for_qr_code(raw_mii_data, qr_code_key)
+
+    # Generate QR Code
+    qr = qrcode.QRCode(version=5, border=1)
+    qr.add_data(bytes(encrypted_data))
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+
+    qr_buffer = io.BytesIO()
+    qr_img.save(qr_buffer, format="PNG")
+    qr_buffer.seek(0)
+
+    return qr_buffer
+
+# main routine
+
+rendering_endpoint = "https://mii-unsecure.ariankordi.net/miis/image.png"
+nnid_lookup_endpoint = "https://mii-unsecure.ariankordi.net/mii_data/"
 
 class Mii(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-    
-    @commands.slash_command(description="Render a mii using mii-unsecure")
+
+    @commands.slash_command(description="Render a Mii with Arian's Mii Renderer REAL")
     @discord.option("render", description="Select the render style", choices=[
         discord.OptionChoice("Wii U/Miiverse", "wiiu"),
         discord.OptionChoice("Switch", "switch"),
@@ -103,92 +172,68 @@ class Mii(commands.Cog):
         discord.OptionChoice("Dark blue", "blue"),
         discord.OptionChoice("Gold", "gold")
     ], required=False)
-    @discord.option("pnid", description="The PNID of the Mii. Leave blank if using NNID.", required=False)
-    @discord.option("nnid", description="The NNID of the Mii. Leave blank if using PNID.", required=False)
+    @discord.option("pnid", description="Pretendo Network ID to get the Mii from. Leave blank if using NNID.", required=False)
+    @discord.option("nnid", description="Nintendo Network ID to get the Mii from. Leave blank if using PNID.", required=False)
     async def mii(
         self,
-        ctx: discord.ApplicationContext, 
-        render: str, 
-        expression: str, 
-        type: str, 
-        resolution: str, 
-        clothes_color: str = None, 
-        pants_color: str = None,
-        pnid: str = None, 
-        nnid: str = None
+        ctx: discord.ApplicationContext,
+        render: str,
+        expression: str,
+        type: str,
+        resolution: str,
+        clothes_color: str|None = None,
+        pants_color: str|None = None,
+        pnid: str|None = None,
+        nnid: str|None = None
     ):
-        nid = pnid or nnid
+        nnas_id = pnid or nnid
+        # 1 = pretendo, 0 = nintendo
         api_id = 1 if pnid else 0
 
-        if not nid or (pnid and nnid):
+        if not nnas_id or (pnid and nnid):
             return await ctx.respond("Please enter either a PNID or NNID, but not both.", ephemeral=True)
 
         await ctx.defer()
 
+        # https://github.com/ariankordi/FFL-Testing/blob/renderer-server-prototype/server-impl/ffl-testing-web-server.go
         shader_map = {"blinn": 3, "miitomo": 2, "switch": 1}
         shader_number = shader_map.get(render, 3)
         shader_type = "" if render == "wiiu" else f"&shaderType={shader_number}"
 
-        image_url = f"https://mii-unsecure.ariankordi.net/miis/image.png?nnid={nid}&api_id={api_id}&type={type}&width={resolution}&expression={expression}{shader_type}"
+        image_url = f"{rendering_endpoint}?nnid={nnas_id}&api_id={api_id}&type={type}&width={resolution}&expression={expression}{shader_type}"
         if clothes_color:
             image_url += f"&clothesColor={clothes_color}"
         if pants_color:
             image_url += f"&pantsColor={pants_color}"
-        data_url = f"https://mii-unsecure.ariankordi.net/mii_data/{nid}?api_id={api_id}"
+        data_url = f"{nnid_lookup_endpoint}?nnid={nnas_id}&api_id={api_id}"
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(image_url) as img_resp, session.get(data_url) as data_resp:
                     if img_resp.status != 200:
                         return await ctx.respond("The Mii could not be found!", ephemeral=True)
-                
+
                     image_bytes = await img_resp.read()
                     mii_json = await data_resp.json()
-            raw_mii_data = base64.b64decode(mii_json['data'])
+            raw_mii_data = bytearray(base64.b64decode(mii_json['data']))
 
-            if clothes_color:
-                # one by one because this is complicated
-                # color table
-                color_table = {"red": 0x00, "orange": 0x01, "yellow": 0x02, "yellowgreen": 0x03, "green": 0x04, "blue": 0x05, "skyblue": 0x06, "pink": 0x07, "purple": 0x08, "brown": 0x09, "white": 0x0A, "black": 0x0B}
-                # we store the mii data in a bytesio object
-                
-                mii_data = io.BytesIO(raw_mii_data)
-                # we go to 0x18, then we read 2 bytes, and we clear out the bits that contain the color (https://www.3dbrew.org/wiki/Mii#Mii_format)
-                mii_data.seek(0x18)
-                data = int.from_bytes(mii_data.read(2), byteorder="little") & 0xC3FF
-                # we choose the new color, shift it by 10 and then we merge it with the rest with an OR operation
-                new_color = color_table[clothes_color] << 10
-                data = data | new_color
-                # then we write the new data
-                mii_data.seek(0x18)
-                mii_data.write(data.to_bytes(2, byteorder="little"))
-                # new checksum
-                crc = crc16(mii_data.getvalue()[0:94])
-                mii_data.seek(0x5E)
-                mii_data.write(crc.to_bytes(2))
-                
-                mii_json['data'] = str(base64.b64encode(mii_data.getvalue()), encoding="utf-8")
-                encrypted_data = encrypt_aes_ccm(mii_data.getvalue())
+            # the index is the name of the color, e.g. black = 11
+            favorite_color_string_table = [ "red", "orange", "yellow", "yellowgreen", "green", "blue", "skyblue", "pink", "purple", "brown", "white", "black"]
+            favorite_color_int = None
+            if clothes_color: # if clothes color is specified, parse from string
+                favorite_color_int = favorite_color_string_table.index(clothes_color)
 
-                mii_data.close()
-            else:
-                encrypted_data = encrypt_aes_ccm(raw_mii_data)
-            
-            # Generate QR Code
-            qr = qrcode.QRCode(version=5, border=1)
-            qr.add_data(encrypted_data)
-            qr_img = qr.make_image(fill_color="black", back_color="white")
-            
-            qr_buffer = io.BytesIO()
-            qr_img.save(qr_buffer, format="PNG")
-            qr_buffer.seek(0)
+            qr_buffer = make_mii_qr_code(raw_mii_data, favorite_color_int)
 
             # Build Embed
+            env_name = 'Pretendo' if api_id == 1 else 'Nintendo'
+            pn_icon = "https://pretendo.network/assets/images/icons/favicon-32x32.png"
+            nn_icon = "https://media.discordapp.net/attachments/1290013025633304696/1295610730904817684/image.png"
             network_info = {
                 "id_type": "PNID" if api_id == 1 else "NNID",
                 "color": 0x1b1f3b if api_id == 1 else 0xFF7D00,
-                "text": f"Environment: {'Pretendo' if api_id == 1 else 'Nintendo'} Network",
-                "icon": "https://pretendo.network/assets/images/icons/favicon-32x32.png" if api_id == 1 else "https://media.discordapp.net/attachments/1290013025633304696/1295610730904817684/image.png"
+                "text": f"Environment: {env_name} Network",
+                "icon": pn_icon if api_id == 1 else nn_icon
             }
 
             embed = discord.Embed(
@@ -199,9 +244,9 @@ class Mii(commands.Cog):
             embed.set_thumbnail(url="attachment://mii.png")
             embed.set_image(url="attachment://mii_qr.png")
             embed.set_footer(text=network_info["text"], icon_url=network_info["icon"])
-            
+
             embed.add_field(name="Name", value=mii_json.get('name', 'N/A'), inline=True)
-            embed.add_field(name=network_info["id_type"], value=str(mii_json.get('user_id', nid)), inline=True)
+            embed.add_field(name=network_info["id_type"], value=str(mii_json.get('user_id', nnas_id)), inline=True)
             embed.add_field(name="Mii data (base64)", value=mii_json["data"], inline=False)
             embed.add_field(name="QR Code:", value="\u200B", inline=False)
 

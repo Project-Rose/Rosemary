@@ -12,3 +12,7 @@ class StatusMonitor(models.Model):
     url = models.CharField(max_length=2048)
     is_down = models.BooleanField()
     downtime_start = models.DateTimeField()
+
+class BannedPhrase(models.Model):
+    phrase = models.CharField(max_length=255, unique=True)
+    added_by = models.CharField(max_length=19)

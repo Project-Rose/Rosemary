@@ -12,7 +12,10 @@ import string
 # Create your views here.
 
 def index(request):
-    return render(request, "index.html")
+    if request.user.is_authenticated:
+        return render(request, "index.html", {"title": "Home"})
+    else:
+        return render(request, "login.html", {"title": "Login", "discord_url": f"https://discord.com/oauth2/authorize?client_id={os.getenv("DISCORD_CLIENT_ID")}&response_type=code&redirect_uri={request.build_absolute_uri("/auth")}&scope=identify"})
 
 def auth(request):
     if request.GET.get("code"):
@@ -20,7 +23,7 @@ def auth(request):
         if req.status_code != 200:
             return HttpResponse("Failed to authenticate. Please try again.")
         response = json.loads(req.content)
-        req = requests.get("https://discord.com/api/v10/oauth2/@me", headers={"Authorization": "Bearer "+response["access_token"]})
+        req = requests.get("https://discord.com/api/v10/oauth2/@me", headers={"Authorization": f"Bearer {response["access_token"]}"})
         if req.status_code != 200:
             return HttpResponse("Failed to authenticate. Please try again.")
         response = json.loads(req.content)
@@ -30,10 +33,10 @@ def auth(request):
                 login(request, user)
                 return HttpResponseRedirect("/")
             else:
-                return HttpResponse("Account not activated. To activate your account, go on the Project Rosé discord, and type /activate code:"+user.code)
+                return HttpResponse(f"Account not activated. To activate your account, go on the Project Rosé discord, and type /activate code:{user.code}")
         except User.DoesNotExist:
             user = User.objects.create_superuser(username=response["user"]["username"],discord_id=response["user"]["id"],is_active=False,code=''.join(random.SystemRandom().choice(string.ascii_lowercase + string.digits) for _ in range(17)))
-            return HttpResponse("Sucessfully authenticated. To activate your account, go on the Project Rosé discord, and type /activate code:"+user.code)
+            return HttpResponse(f"Sucessfully authenticated. To activate your account, go on the Project Rosé discord, and type /activate code:{user.code}")
     else:
         return HttpResponseForbidden()
 

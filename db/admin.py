@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import *
 
-admin.register(StarboardMessage)
-admin.register(StatusMonitor)
+admin.site.register(StarboardMessage)
+admin.site.register(StatusMonitor)
+admin.site.register(User)

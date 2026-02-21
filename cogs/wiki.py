@@ -1,6 +1,7 @@
 from discord.ext import commands
 from db.models import WikiPage
 from asgiref.sync import sync_to_async
+from django.utils import timezone
 import discord
 import time
 
@@ -24,7 +25,7 @@ class Wiki(commands.Cog):
         page = await self._get_wiki_page(short_name)
         if page:
             embed = discord.Embed(color=discord.Color.blue(), title=page.name, description=page.content)
-            embed.set_footer(text=f"Last modified: {time.strftime("%d/%m/%Y %H:%M:%S", page.last_modified.timetuple())}")
+            embed.set_footer(text=f"Last modified: {time.strftime("%d/%m/%Y %H:%M:%S", page.last_modified.timetuple())} ({timezone.get_current_timezone_name()})")
         elif show_not_found:
             embed = discord.Embed(color=discord.Color.red(), title="Page not found", description="Could not find wiki page with short name "+short_name+".")
         else:

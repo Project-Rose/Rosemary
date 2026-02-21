@@ -66,7 +66,7 @@ class Status(commands.Cog):
                         if str(response.status).startswith("5") or str(response.status).startswith("4"):
                             if not monitor.is_down:
                                 embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with status code: {response.status} ({http.HTTPStatus(response.status).phrase})")
-                                embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())})")
+                                embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())} {timezone.get_current_timezone_name()})")
                                 embed.set_thumbnail(url="attachment://offline.png")
                                 offline_file = discord.File("images/offline.png", filename="offline.png")
                                 await status_channel.send(embed=embed, files=[offline_file])
@@ -81,7 +81,7 @@ class Status(commands.Cog):
                 except Exception as e:
                     if not monitor.is_down:
                         embed = discord.Embed(color=discord.Color.red(), title=f"{monitor.name} is down!", description=f"Request failed with exception: {e}")
-                        embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())})")
+                        embed.set_footer(text=f"Last downtime: {humanize.naturaldelta(timezone.now() - monitor.downtime_start)} ago ({time.strftime("%d/%m/%Y %H:%M:%S", monitor.downtime_start.timetuple())} {timezone.get_current_timezone_name()})")
                         embed.set_thumbnail(url="attachment://offline.png")
                         offline_file = discord.File("images/offline.png", filename="offline.png")
                         await status_channel.send(embed=embed, files=[offline_file])

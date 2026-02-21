@@ -147,6 +147,7 @@ class Mii(commands.Cog):
         discord.OptionChoice("Switch Portrait", "variableiconbody")
     ])
     @discord.option("resolution", description="Resolution of the rendered image", choices=[
+        discord.OptionChoice("0.35x (96px, like mii-secure)", "96"),
         discord.OptionChoice("1x (270px)", "270"),
         discord.OptionChoice("2x (540px)", "540"),
         discord.OptionChoice("3x (810px)", "810"),

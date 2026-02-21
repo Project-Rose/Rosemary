@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponse, HttpResponseForbidden, HttpResponseRedirect
 from django.contrib.auth.models import User
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from db.models import User
 import requests
 import os
@@ -37,6 +37,9 @@ def auth(request):
     else:
         return HttpResponseForbidden()
 
+def signout(request):
+    logout(request)
+    return HttpResponseRedirect("/")
 
 def err404(request, exception):
     return render(request, "404.html", {"title": "404!!!!!!"})

@@ -22,5 +22,6 @@ handler500 = "rosemary_web.views.err500"
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('markdownx/', include('markdownx.urls')),
     path('', include('rosemary_web.urls'))
 ]

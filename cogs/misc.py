@@ -45,19 +45,19 @@ class Miscellaneous(commands.Cog):
     
     @commands.slash_command(description="Activate your account on the web frontend")
     @discord.default_permissions(administrator=True)
-    async def activate(self, ctx: discord.Message, code: discord.Option(str)):
+    async def activate(self, ctx, code: discord.Option(str)):
         user = await self._find_user(str(ctx.author.id))
         if user:
             if user.code == code:
                 if not user.is_active:
                     await self._set_active(user)
-                    await ctx.respond("Your account was successfully activated.")
+                    await ctx.respond("Your account was successfully activated.", ephemeral=True)
                 else:
-                    await ctx.respond("This account was already activated!")
+                    await ctx.respond("This account was already activated!", ephemeral=True)
             else:
-                await ctx.respond("Invalid code.")
+                await ctx.respond("Invalid code.", ephemeral=True)
         else:
-            await ctx.respond("No account associated with this discord account exists.")
+            await ctx.respond("No account associated with this discord account exists.", ephemeral=True)
 
 def setup(bot):
     bot.add_cog(Miscellaneous(bot))

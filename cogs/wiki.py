@@ -47,10 +47,13 @@ class Wiki(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, ctx: discord.Message):
         if ctx.author.id != self.bot.user.id:
-            if ctx.content.startswith(".w"):
+            if ctx.content.startswith("!"):
                 message = ctx.content.split(" ")
+                if len(message) > 1:
+                    # avoid accidental commands
+                    return
                 try:
-                    embed = await self.show_page(message[1])
+                    embed = await self.show_page(message[0].replace("!", ""))
                     await ctx.reply(embed=embed, mention_author=False)
                 except IndexError:
                     await ctx.channel.send("Not enough arguments.")

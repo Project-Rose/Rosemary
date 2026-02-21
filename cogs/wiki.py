@@ -39,7 +39,7 @@ class Wiki(commands.Cog):
     @wiki.command(name="list", description="List of wiki pages")
     async def wiki_list(self, ctx):
         pages = await self._get_all_wiki_pages()
-        embed = discord.Embed(color=discord.Color.blue(), title="List of wiki pages", description="Use /wiki show (short name) or .h (short name) to show a wiki page.")
+        embed = discord.Embed(color=discord.Color.blue(), title="List of wiki pages", description="Use /wiki show (short name) or .w (short name) to show a wiki page.")
         for page in pages:
             embed.add_field(name=page.short_name, value=page.name, inline=False)
         await ctx.respond(embed=embed)
@@ -47,7 +47,7 @@ class Wiki(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, ctx: discord.Message):
         if ctx.author.id != self.bot.user.id:
-            if ctx.content.startswith(".h"):
+            if ctx.content.startswith(".w"):
                 message = ctx.content.split(" ")
                 try:
                     embed = await self.show_page(message[1])

@@ -1,5 +1,7 @@
 from discord.ext import commands
 from random import choice, randint
+from db.models import User
+from asgiref.sync import sync_to_async
 import discord
 import asyncio
 import json
@@ -9,6 +11,19 @@ class Miscellaneous(commands.Cog):
         self.bot: discord.Bot = bot
         self.random_messages = json.load(open("data/random_messages.json", "r"))
     
+    @sync_to_async
+    def _find_user(self, discord_id):
+        try:
+            user = User.objects.get(discord_id=discord_id)
+            return user
+        except User.DoesNotExist:
+            return None
+    
+    @sync_to_async
+    def _set_active(self, user):
+        user.is_active = True
+        user.save()
+
     @commands.Cog.listener()
     async def on_message(self, ctx):
         if self.bot.user.id == ctx.author.id:
@@ -27,6 +42,22 @@ class Miscellaneous(commands.Cog):
     async def ping(self, ctx):
         latency = self.bot.latency * 1000
         await ctx.respond(f"Pong! `{latency:.2f} ms` 🏓")
+    
+    @commands.slash_command(description="Activate your account on the web frontend")
+    @discord.default_permissions(administrator=True)
+    async def activate(self, ctx: discord.Message, code: discord.Option(str)):
+        user = await self._find_user(str(ctx.author.id))
+        if user:
+            if user.code == code:
+                if not user.is_active:
+                    await self._set_active(user)
+                    await ctx.respond("Your account was successfully activated.")
+                else:
+                    await ctx.respond("This account was already activated!")
+            else:
+                await ctx.respond("Invalid code.")
+        else:
+            await ctx.respond("No account associated with this discord account exists.")
 
 def setup(bot):
     bot.add_cog(Miscellaneous(bot))

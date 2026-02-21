@@ -1,6 +1,7 @@
 ﻿py-cord==2.7.1
 python-dotenv==1.0.0
 Django==5.2.8
+django-markdownx==4.0.9
 asgiref==3.10.0
 humanize==4.15.0
 pycryptodome==3.17

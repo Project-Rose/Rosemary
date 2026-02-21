@@ -1,0 +1,40 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>{% if title %}{{title}} - Rosemary{% else %}Rosemary{% endif %}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="{% static "css/bootstrap.min.css" %}">
+        <style>
+            body {
+                padding-top: 60px; /* stole this hack from lord bootstrap themselves and I have no shame not hiding it */
+            }
+        </style>
+        <link rel="stylesheet" href="{% static "css/bootstrap-responsive.min.css" %}">
+        <script src="{% static "js/jquery.min.js" %}"></script>
+        <script src="{% static "js/bootstrap.min.js" %}"></script>
+    </head>
+    <body>
+        <div class="navbar navbar-inverse navbar-fixed-top">
+            <div class="navbar-inner">
+                <div class="container">
+                    <button type="button" class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="brand" href="/">Rosemary</a>
+                    <div class="nav-collapse collapse">
+                        <ul class="nav">
+                            <li><a href="/wiki">Wiki pages</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="container">
+            {% block main %}
+            {% endblock %}
+        </div>
+    </body>
+</html>

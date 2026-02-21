@@ -1,10 +1,13 @@
 from discord.ext import commands
-from dotenv import load_dotenv
-import manage
+from pathlib import Path
 import os
 import discord
+import django
 
-load_dotenv()
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'rosemary.settings')
+
+django.setup()
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID"))
 

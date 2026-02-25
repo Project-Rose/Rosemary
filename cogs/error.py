@@ -1,9 +1,7 @@
 from discord.ext import commands
 from db.models import Error
 from asgiref.sync import sync_to_async
-from django.utils import timezone
 import discord
-import time
 
 class ErrorDatabase(commands.Cog):
     def __init__(self, bot):

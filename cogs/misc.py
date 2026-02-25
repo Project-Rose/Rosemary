@@ -5,6 +5,9 @@ from asgiref.sync import sync_to_async
 import discord
 import asyncio
 import json
+import os
+
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 class Miscellaneous(commands.Cog):
     def __init__(self, bot):
@@ -43,7 +46,7 @@ class Miscellaneous(commands.Cog):
         latency = self.bot.latency * 1000
         await ctx.respond(f"Pong! `{latency:.2f} ms` 🏓")
     
-    @commands.slash_command(description="Activate your account on the web frontend")
+    @commands.slash_command(description="Activate your account on the web frontend", guild_ids=[GUILD_ID])
     @discord.default_permissions(administrator=True)
     async def activate(self, ctx, code: discord.Option(str)):
         user = await self._find_user(str(ctx.author.id))

@@ -35,3 +35,18 @@ class WikiPage(models.Model):
     def clean(self):
         self.short_name = self.short_name.replace(" ", "")
         self.last_modified = timezone.now()
+
+class Error(models.Model):
+    TYPE_CHOICES = (
+        ("R", "Roseverse"),
+        ("T", "Nintendo TVii")
+    )
+    code = models.CharField(max_length=20, unique=True)
+    type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    name = models.CharField(max_length=512)
+    description = MarkdownxField()
+    solution = MarkdownxField()
+    def __str__(self):
+        return self.code
+    def clean(self):
+        self.code = self.code.replace(" ", "")

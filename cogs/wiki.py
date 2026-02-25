@@ -27,7 +27,7 @@ class Wiki(commands.Cog):
             embed = discord.Embed(color=discord.Color.blue(), title=page.name, description=page.content)
             embed.set_footer(text=f"Last modified: {time.strftime("%d/%m/%Y %H:%M:%S", page.last_modified.timetuple())} ({timezone.get_current_timezone_name()})")
         elif show_not_found:
-            embed = discord.Embed(color=discord.Color.red(), title="Page not found", description="Could not find wiki page with short name "+short_name+".")
+            embed = discord.Embed(color=discord.Color.red(), title="Page not found", description=f"Could not find wiki page with short name {short_name}.")
         else:
             return None
         return embed
